@@ -1,0 +1,5 @@
+# Capturas y log de tools/probar.py: cambian en cada corrida
+tools/salida/
+# Copias temporales de index.html para las pruebas (_prueba.html y similares)
+_*.html
+.claude/settings.local.json

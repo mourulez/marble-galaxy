@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "C:/dev/galaxy"
+    ],
+    "deny": [
+      "Edit(//c/dev/galaxy/**)",
+      "Edit(//C:/dev/galaxy/**)"
+    ]
+  }
+}

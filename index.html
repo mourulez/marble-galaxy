@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Marble Galaxy</title>
+<style>
+  :root {
+    --bg: #000000;
+    --fg: #ffffff;
+    --btn-bg: rgba(255,255,255,0.12);
+    --btn-bd: rgba(255,255,255,0.25);
+    color-scheme: dark;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #000000; --fg: #ffffff; }
+  }
+  :root[data-theme="dark"] { --bg: #000000; --fg: #ffffff; }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+  body {
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  canvas.grabbing { cursor: grabbing; }
+  #fs {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    right: calc(env(safe-area-inset-right, 0px) + 14px);
+    width: 44px; height: 44px; padding: 0;
+    display: grid; place-items: center;
+    border-radius: 12px; border: 1px solid var(--btn-bd);
+    background: var(--btn-bg); color: var(--fg);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    cursor: pointer; z-index: 5;
+  }
+  #fs:focus-visible { outline: 2px solid #9fd8ff; outline-offset: 2px; }
+  #fs svg { width: 22px; height: 22px; }
+  #fs .exit { display: none; }
+  #fs.on .enter { display: none; }
+  #fs.on .exit { display: block; }
+  #hint, #toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    font-size: 13px; white-space: nowrap; pointer-events: none;
+    transition: opacity .8s ease;
+  }
+  #hint { bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); opacity: .55; }
+  #hint.off { opacity: 0; }
+  #toast {
+    top: calc(env(safe-area-inset-top, 0px) + 70px);
+    background: rgba(255,255,255,0.14); padding: 8px 12px; border-radius: 10px;
+    opacity: 0;
+  }
+  #toast.show { opacity: .9; transition: opacity .2s ease; }
+  #win {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    font-size: 56px; font-weight: 800; letter-spacing: 0.02em; color: #fff;
+    text-shadow: 0 0 24px rgba(110,180,255,.9), 0 2px 0 #2a4f9e;
+    opacity: 0; transform: scale(.9); transition: opacity .4s ease, transform .4s ease;
+    pointer-events: none; z-index: 6;
+  }
+  #win.show { opacity: 1; transform: scale(1); }
+  #stars {
+    position: fixed;
+    left: calc(env(safe-area-inset-left, 0px) + 14px);
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 6px;
+    border-radius: 12px; border: 1px solid var(--btn-bd);
+    background: var(--btn-bg); color: #ffd23f; font-weight: 700; font-size: 16px;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    pointer-events: none; z-index: 5; transition: transform .2s ease;
+  }
+  #stars.pop { transform: scale(1.25); }
+  /* Indicador del stick: aro en el ancla (del tamaño del radio) y punto en la posición del dedo */
+  #stickRing, #stickDot {
+    position: fixed; left: 0; top: 0; border-radius: 50%;
+    pointer-events: none; z-index: 4; display: none;
+  }
+  #stickRing { border: 2px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.04); }
+  #stickDot { width: 26px; height: 26px; margin: -13px 0 0 -13px; background: rgba(255,255,255,0.45); }
+  #loading {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    font-size: 15px; opacity: .7; pointer-events: none; z-index: 7;
+  }
+  #loading.off { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="fs" aria-label="Pantalla completa" title="Pantalla completa">
+  <svg class="enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  <svg class="exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+</button>
+<div id="hint">Arrastra para rodar</div>
+<div id="toast">Pantalla completa no disponible aquí</div>
+<div id="win" aria-live="polite">¡Completo!</div>
+<div id="stars" aria-label="Estrellas recogidas">★ <span id="starCount">0</span>/3</div>
+<div id="stickRing"></div><div id="stickDot"></div>
+<div id="loading">Cargando…</div>
+
+<script src="vendor/three-r128.min.js"></script>
+<!-- Rapier en su versión compat (WASM dentro del JS) como script clásico: con doble clic (file://)
+     Chrome bloquea los módulos. Escribe en `exports`; sus nombres minificados quedan en el ámbito
+     global, por eso todo el juego va dentro de una función. -->
+<script>var exports = {};</script>
+<script src="vendor/rapier3d-compat-0.21.0.cjs"></script>
+<script>
+(async () => {
+  const RAPIER = exports;
+  await RAPIER.init();                       // compila el WASM embebido; hasta entonces, "Cargando…"
+
+  // ---------- parámetros, para ajustarlos jugando ----------
+  const G = 12;                  // gravedad (u/s²): hacia el centro, módulo constante (como en Galaxy, no 1/r²)
+  const BALL_R = 0.12;
+  const R_P = 2.5;               // radio del planetoide: vuelta completa ≈ 16 u
+  const R_INF = 2 * R_P;         // radio de influencia de la gravedad: fuera, cero
+  const MU = 1.0;                // rozamiento bola–superficie: el agarre limita las cuestas a atan(MU) = 45°
+  const BOUNCE = 0.1;            // restitución
+  const A_MOTOR = 8;             // u/s²: en llano acelera a 5/7·A_MOTOR ≈ 5,7; sostiene hasta asin(A_MOTOR/G) ≈ 42°
+  const V_MAX = 2.0;             // u/s: velocidad punta del motor en llano; cuesta abajo se puede pasar
+  const ROLL_RES = 1.0;          // u/s²: desde V_MAX para en ≈2 s y ≈2 u; sostiene quieta hasta ≈7°
+  const SPIN_RES = 20;           // rad/s²: frena el giro sobre la normal (10 rad/s en 0,5 s)
+  const HOLE_R = 0.65;           // radio medio de los agujeros A y B (los demás, en HOLES)
+  const HOLE_DEPTH = 0.4;        // grosor de la corteza: hasta dónde bajan las paredes de los agujeros
+  const RAMP_H = 0.3;            // altura de las repisas
+  // Por debajo de este radio empieza el colapso: en cuanto la bola pasa el fondo de la pared de un
+  // agujero (desde fuera solo se llega por uno). Con un radio menor (era 0,9), la bola que entraba de
+  // lado orbitaba alrededor del centro sin bajar de él y cruzaba el planeta por dentro.
+  const R_KILL = R_P - HOLE_DEPTH;
+  const LOST_TIME = 3, R_SPACE = 3 * R_P;   // perdida en el espacio: tiempo fuera de R_INF, o distancia
+  const CAM_DIST = 5, CAM_ELEV = 50 * Math.PI / 180;
+  const CAM_UP_K = 5;            // suavizado del arriba de la cámara (1/s)
+  const ANG_DAMP = 0.01;         // amortiguación angular mínima; la lineal es cero
+  const STEP = 1 / 120;
+  const GROUND_COS = Math.cos(60 * Math.PI / 180);   // apoyo: normal a menos de 60° del arriba local
+  const CONTACT_EPS = 0.005;     // un punto del manifold es contacto si la bola está a menos de esto de él
+  // Stick (como en galaxy/index2.html)
+  const STICK_K = 0.18, STICK_MIN = 60, STICK_MAX = 140;   // radio: 0,18·min(ancho, alto) px, acotado (px)
+  const STICK_DEAD = 0.08;       // zona muerta, en fracción del radio
+  const STICK_CURVE = 1;         // exponente de la curva |s| → par (1 = lineal)
+
+  // ---------- utilidades ----------
+  let seed = 11;
+  const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const V3 = THREE.Vector3;
+  const UP = new V3(0, 1, 0), ZERO = new V3();
+  const randDir = () => { const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z); return new V3(r * Math.cos(a), z, r * Math.sin(a)); };
+  const DEG = Math.PI / 180;
+  // Disposición del planetoide: centrado en el origen, polo norte en +y, longitud 0° en +x y 90° en +z
+  const latLon = (lat, lon, r) => new V3(Math.cos(lat * DEG) * Math.cos(lon * DEG), Math.sin(lat * DEG), Math.cos(lat * DEG) * Math.sin(lon * DEG)).multiplyScalar(r);
+  // Dirección "sur" (tangente, unitaria) en un punto dado por latitud y longitud
+  const southAt = (lat, lon) => new V3(Math.sin(lat * DEG) * Math.cos(lon * DEG), -Math.cos(lat * DEG), Math.sin(lat * DEG) * Math.sin(lon * DEG));
+
+  // ---------- renderer / escena ----------
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 1);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 300);
+
+  // Gradiente toon suavizado
+  const gData = new Uint8Array([150,150,150,255, 200,200,200,255, 238,238,238,255, 255,255,255,255]);
+  const grad = new THREE.DataTexture(gData, 4, 1, THREE.RGBAFormat);
+  grad.minFilter = grad.magFilter = THREE.LinearFilter;
+  grad.needsUpdate = true;
+  const toon = (c, extra) => new THREE.MeshToonMaterial(Object.assign({ color: c, gradientMap: grad }, extra || {}));
+
+  // Luces atadas al arriba de la cámara (ver tick): cielo hacia el arriba local y sol desde arriba, de
+  // lado y algo por detrás, así la zona de la bola se ve igual en cualquier punto del planeta, también
+  // abajo. Con el sol más de frente toda la cara visible quedaba igual de iluminada (plana, y con el
+  // color del suelo saturado).
+  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x6a5a8e, 0.7);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1d6, 0.75);
+  scene.add(sun);
+
+  // Sombras de contacto (disco difuminado)
+  const blobTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,0.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const blobGeo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+  const makeBlob = (color, opacity) => {
+    const b = new THREE.Mesh(blobGeo, new THREE.MeshBasicMaterial({
+      map: blobTex, color, transparent: true, opacity, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+    }));
+    b.renderOrder = 1;
+    return b;
+  };
+
+  // ---------- física (Rapier) ----------
+  // La gravedad del mundo es cero: cada paso se aplica a la bola la de gravityAt() como fuerza. Rapier
+  // calcula el rozamiento con la normal real del contacto (Coulomb), así que no hace falta más.
+  const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+  world.timestep = STEP;
+  const ground = (desc) => world.createCollider(desc.setFriction(MU).setRestitution(BOUNCE));
+  const FIX_EDGES = RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES;   // que la bola no tropiece entre triángulos
+
+  // ---------- el planetoide ----------
+  // Esfera hueca de radio R_P (icosaedro subdividido) con agujeros de contorno irregular. La misma
+  // malla es el colisionador (trimesh). Cada agujero tiene un radio angular que varía con el acimut
+  // alrededor de su centro (holeRho). Se recorta quitando los triángulos que lo tocan y llevando a su
+  // contorno los vértices del borde que quedan. Del contorno baja una pared hasta HOLE_DEPTH (malla y
+  // colisionador), que da grosor a la corteza sea cual sea la forma del agujero.
+  // Centro (lat, lon) y radio medio r (u); el contorno varía ±HOLE_WOBBLE del radio. Lejos de las
+  // rampas, del pasillo entre el polo y ellas, y de los puntos de las pruebas.
+  const HOLES = [
+    { lat: 0, lon: 60, r: HOLE_R },        // A: entre las rampas de 20° y 35°, con la tercera estrella
+    { lat: -40, lon: 200, r: HOLE_R },     // B: en la cara de abajo
+    { lat: 5, lon: 195, r: 0.5 },
+    { lat: 0, lon: 300, r: 0.55 },
+    { lat: -15, lon: 240, r: 0.5 },
+    { lat: -35, lon: 125, r: 0.45 },
+    { lat: -65, lon: 10, r: 0.5 },
+  ];
+  const HOLE_WOBBLE = 0.25;
+  const holes = HOLES.map(h => {
+    const dir = latLon(h.lat, h.lon, 1);
+    const e1 = new V3().crossVectors(dir, Math.abs(dir.y) < 0.9 ? UP : new V3(1, 0, 0)).normalize();
+    return { dir, e1, e2: new V3().crossVectors(dir, e1), r: h.r, ph: [rnd(), rnd(), rnd()].map(x => x * 2 * Math.PI) };
+  });
+  // Radio angular del agujero h en el acimut de la dirección v (unitaria): tres armónicos con fase al azar
+  const holeRho = (h, v) => {
+    const a = Math.atan2(v.dot(h.e2), v.dot(h.e1));
+    const w = 0.55 * Math.sin(2 * a + h.ph[0]) + 0.3 * Math.sin(3 * a + h.ph[1]) + 0.15 * Math.sin(5 * a + h.ph[2]);
+    return h.r / R_P * (1 + HOLE_WOBBLE * w);
+  };
+  // Distancia (u, sobre la superficie) de la dirección v al contorno del agujero h; negativa dentro
+  const holeDist = (h, v) => (Math.acos(clamp(v.dot(h.dir), -1, 1)) - holeRho(h, v)) * R_P;
+  const planet = (() => {
+    const t = (1 + Math.sqrt(5)) / 2;
+    const verts = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]]
+      .map(v => new V3(...v).normalize());
+    let faces = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+                 [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+    // 6 subdivisiones: aristas de ≈0,04 u, menos de 1° entre caras vecinas
+    for (let l = 0; l < 6; l++) {
+      const cache = new Map(), next = [];
+      const mid = (a, b) => {
+        const k = a < b ? a * 1e6 + b : b * 1e6 + a;
+        let m = cache.get(k);
+        if (m === undefined) { m = verts.length; verts.push(verts[a].clone().add(verts[b]).normalize()); cache.set(k, m); }
+        return m;
+      };
+      faces.forEach(([a, b, c]) => { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); });
+      faces = next;
+    }
+    const inHole = verts.map(v => holes.findIndex(h => holeDist(h, v) < 0));
+    const kept = [], snap = new Map();
+    faces.forEach(f => {
+      const hk = f.map(i => inHole[i]);
+      if (hk.every(h => h < 0)) { kept.push(f); return; }
+      const h = hk.find(x => x >= 0);
+      f.forEach((i, k) => { if (hk[k] < 0) snap.set(i, h); });   // vértice que queda en el borde
+    });
+    snap.forEach((h, i) => {
+      const H = holes[h], v = verts[i];
+      const perp = v.clone().addScaledVector(H.dir, -v.dot(H.dir)).normalize(), rho = holeRho(H, v);
+      verts[i] = H.dir.clone().multiplyScalar(Math.cos(rho)).addScaledVector(perp, Math.sin(rho));
+    });
+    // Al llevar vértices al contorno, algún triángulo del borde puede quedar degenerado o del revés
+    const e1 = new V3(), e2 = new V3(), cn = new V3();
+    const tris = kept.filter(([a, b, c]) => {
+      e1.subVectors(verts[b], verts[a]); e2.subVectors(verts[c], verts[a]); cn.crossVectors(e1, e2);
+      return cn.dot(verts[a]) > 1e-9;
+    });
+    // Corteza: posición, normal y distancia al borde del agujero más cercano (aEdge, para el shader)
+    const remap = new Map(), pos = [], nrm = [], edge = [], idx = [];
+    tris.forEach(f => f.forEach(i => {
+      if (!remap.has(i)) {
+        remap.set(i, pos.length / 3);
+        const v = verts[i];
+        pos.push(v.x * R_P, v.y * R_P, v.z * R_P); nrm.push(v.x, v.y, v.z);
+        edge.push(clamp(Math.min(...holes.map(h => holeDist(h, v))), 0, 1));
+      }
+      idx.push(remap.get(i));
+    }));
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+    g.setAttribute('aEdge', new THREE.BufferAttribute(new Float32Array(edge), 1));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+    // Paredes: por cada arista de borde (de un solo triángulo), un quad que baja hasta HOLE_DEPTH.
+    // Recorre la arista al revés que su triángulo, para que la malla siga orientada de forma coherente.
+    const count = new Map(), key = (a, b) => a < b ? a * 1e7 + b : b * 1e7 + a;
+    for (let k = 0; k < idx.length; k += 3) for (let e = 0; e < 3; e++) {
+      const kk = key(idx[k + e], idx[k + (e + 1) % 3]); count.set(kk, (count.get(kk) || 0) + 1);
+    }
+    const kIn = (R_P - HOLE_DEPTH) / R_P, inner = new Map();
+    const wallPos = pos.slice(), wallIdx = [];
+    const below = i => {
+      if (!inner.has(i)) { inner.set(i, wallPos.length / 3); wallPos.push(pos[3 * i] * kIn, pos[3 * i + 1] * kIn, pos[3 * i + 2] * kIn); }
+      return inner.get(i);
+    };
+    for (let k = 0; k < idx.length; k += 3) for (let e = 0; e < 3; e++) {
+      const a = idx[k + e], b = idx[k + (e + 1) % 3];
+      if (count.get(key(a, b)) === 1) wallIdx.push(b, a, below(a), b, below(a), below(b));
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(wallPos), 3));
+    wg.setIndex(new THREE.BufferAttribute(new Uint32Array(wallIdx), 1));
+    wg.computeVertexNormals();
+    return { geo: g, wallGeo: wg, physPos: new Float32Array(wallPos), physIdx: new Uint32Array(idx.concat(wallIdx)) };
+  })();
+  const planetGeo = planet.geo;
+  // Superficie procedural en el shader, sin texturas ni costuras, con bordes nítidos (estilo toon):
+  //  - hierba en dos tonos, con un moteado fino y un borde más oscuro donde acaba;
+  //  - roca en piedras (celdas de Voronoi 3D, ≈0,25 u) con grietas, en manchas y siempre alrededor
+  //    de los agujeros (aEdge < ≈0,2 u, con el contorno irregular).
+  // Los tonos van en el shader, todos por debajo del blanco; el color base solo los atenúa un poco.
+  const planetMat = toon(0xeeeeee);
+  planetMat.onBeforeCompile = sh => {
+    sh.vertexShader = 'attribute float aEdge;\nvarying vec3 vObj;\nvarying float vEdge;\n' +
+      sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vObj = position;\n  vEdge = aEdge;');
+    sh.fragmentShader = `varying vec3 vObj;
+      varying float vEdge;
+      float hash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+      float noise3(vec3 x) {
+        vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+                   mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+      }
+      float fbm(vec3 p) { float s = 0.0, a = 0.5; for (int k = 0; k < 3; k++) { s += a * noise3(p); p *= 2.03; a *= 0.5; } return s; }
+      // Voronoi 3D: (distancia al punto más cercano, al segundo, valor de la celda)
+      vec3 voro(vec3 x) {
+        vec3 i = floor(x), f = fract(x); float d1 = 8.0, d2 = 8.0, id = 0.0;
+        for (int k = -1; k <= 1; k++) for (int j = -1; j <= 1; j++) for (int l = -1; l <= 1; l++) {
+          vec3 g = vec3(float(l), float(j), float(k)), c = i + g;
+          vec3 r = g + vec3(hash3(c), hash3(c + 17.1), hash3(c + 31.7)) - f;
+          float d = dot(r, r);
+          if (d < d1) { d2 = d1; d1 = d; id = hash3(c + 5.3); } else if (d < d2) d2 = d;
+        }
+        return vec3(sqrt(d1), sqrt(d2), id);
+      }
+      ` + sh.fragmentShader.replace('#include <map_fragment>', `
+      {
+        vec3 vc = voro(vObj * 4.0);
+        vec3 rock = mix(vec3(0.44, 0.35, 0.27), vec3(0.66, 0.55, 0.43), vc.z);
+        rock *= mix(0.55, 1.0, smoothstep(0.03, 0.07, vc.y - vc.x));                       // grietas
+        vec3 grass = mix(vec3(0.27, 0.52, 0.18), vec3(0.40, 0.68, 0.25), smoothstep(0.44, 0.46, fbm(vObj * 2.2 + 5.0)));
+        grass *= 0.93 + 0.07 * smoothstep(0.45, 0.55, noise3(vObj * 30.0));                // moteado
+        // dónde hay hierba: manchas grandes, con el borde algo irregular, y nunca junto a un agujero
+        float m = fbm(vObj * 0.8 + 11.0) - 0.36 + 0.05 * noise3(vObj * 7.0) - 2.0 * max(0.0, 0.2 - vEdge);
+        grass *= mix(0.72, 1.0, smoothstep(0.02, 0.03, m));                               // borde oscuro
+        diffuseColor.rgb *= mix(rock, grass, smoothstep(0.0, 0.01, m));
+      }`);
+  };
+  scene.add(new THREE.Mesh(planetGeo, planetMat));
+  // Cara interior, oscura: por los agujeros se ve el hueco y, al fondo, el brillo del agujero negro
+  scene.add(new THREE.Mesh(planetGeo, new THREE.MeshBasicMaterial({ color: 0x24170f, side: THREE.BackSide })));
+  scene.add(new THREE.Mesh(planet.wallGeo, toon(0x5a4232, { side: THREE.DoubleSide })));   // paredes de los agujeros
+  ground(RAPIER.ColliderDesc.trimesh(planet.physPos, planet.physIdx, FIX_EDGES));
+
+  // ---------- rampas ----------
+  // Cuñas pegadas a la superficie que suben hacia el sur hasta una repisa a RAMP_H. Coordenadas de una
+  // rampa: a = avance hacia el sur desde el pie (arco sobre la esfera), b = lateral, h = altura sobre la
+  // esfera. El perfil se integra con la pendiente local σ (respecto a la vertical local, no al y del
+  // mundo):
+  //  - El pie va redondeado: σ sube de 0 a θ con radio RAMP_FILLET (> BALL_R). Con una arista viva la
+  //    bola perdía en el choque la velocidad normal a la rampa (v·sin θ, restitución 0,1): a 50° llegaba
+  //    al pie a ≈1,9 u/s, salía rampa arriba a ≈1,4 y no subía ni con carrerilla.
+  //  - Luego σ = θ constante hasta RAMP_H: en la esfera eso es una espiral logarítmica. Una cuña plana
+  //    de 20° acabaría en 39° respecto a la gravedad, porque la vertical gira con la curvatura.
+  // Colisión con convexHull: el tramo recto y la repisa son convexos (una sola pieza); el redondeo es
+  // cóncavo y va en lonchas convexas, una por muestra. Todas las juntas entre piezas son cóncavas (las
+  // juntas planas o convexas entre colisionadores distintos dan choques fantasma con la arista). La base está
+  // RAMP_SINK bajo la superficie y el perfil arranca RAMP_EMB por debajo, así la cara frontal queda
+  // enterrada y la bola entra en la rampa por una junta cóncava.
+  const RAMP_LAT = 50, RAMP_W = 0.6, RAMP_SHELF = 0.5, RAMP_SINK = 0.15, RAMP_FILLET = 0.25, RAMP_EMB = 0.004;
+  const RAMPS = [{ deg: 20, lon: 0 }, { deg: 35, lon: 120, star: true }, { deg: 50, lon: 240, star: true }];
+  const gridGeo = rows => {
+    const nc = rows[0].length, pos = [], idx = [];
+    rows.forEach(r => r.forEach(p => pos.push(p.x, p.y, p.z)));
+    for (let i = 0; i < rows.length - 1; i++) for (let j = 0; j < nc - 1; j++) {
+      const a = i * nc + j, b = a + 1, c = a + nc, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx); g.computeVertexNormals();
+    return g;
+  };
+  const ramps = RAMPS.map(({ deg, lon, star }) => {
+    const th = deg * DEG;
+    const f = latLon(RAMP_LAT, lon, 1), s = southAt(RAMP_LAT, lon), w = new V3().crossVectors(f, s);
+    // Perfil (a, h) por pasos DA: dr/da = (r/R_P)·tan σ, y en el redondeo dσ/ds = 1/RAMP_FILLET
+    const DA = 0.001, prof = [-RAMP_EMB];
+    let h = -RAMP_EMB, sg = 0, aFil = 0;
+    while (h < RAMP_H) {
+      const k = (R_P + h) / R_P;
+      if (sg < th) { sg = Math.min(th, sg + k * DA / Math.cos(sg) / RAMP_FILLET); aFil = prof.length * DA; }
+      h = Math.min(RAMP_H, h + k * Math.tan(sg) * DA);
+      prof.push(h);
+    }
+    const aTop = (prof.length - 1) * DA, aEnd = aTop + RAMP_SHELF;
+    const hAt = a => {
+      if (a >= aTop) return RAMP_H;
+      if (a <= 0) return -RAMP_EMB;
+      const i = Math.floor(a / DA), u = a / DA - i;
+      return prof[i] + (prof[i + 1] - prof[i]) * u;
+    };
+    const point = (a, b, h) => f.clone().addScaledVector(s, Math.tan(a / R_P)).addScaledVector(w, Math.tan(b / R_P)).normalize().multiplyScalar(R_P + h);
+    // Punto de la cara de arriba y su normal (para colocar cosas encima)
+    const surf = (a, b = 0) => {
+      const p = point(a, b, hAt(a)), e = 1e-3;
+      const n = new V3().crossVectors(point(a + e, b, hAt(a + e)).sub(p), point(a, b + e, hAt(a)).sub(p)).normalize();
+      if (n.dot(p) < 0) n.negate();
+      return { p, n };
+    };
+    // Muestras: NF en el redondeo, NR en el tramo recto (hasta NA = NF + NR, lo alto) y NS en la repisa.
+    // Con θ/NF > (paso del tramo recto)/R_P, la junta entre el redondeo y el tramo recto es cóncava
+    // también a 20° (la cuerda del tramo recto pierde pendiente por la curvatura del planeta).
+    const NF = 14, NR = 20, NA = NF + NR, NS = 6, NB = 8;
+    const as = [];
+    for (let i = 0; i <= NF; i++) as.push(aFil * i / NF);
+    for (let i = 1; i <= NR; i++) as.push(aFil + (aTop - aFil) * i / NR);
+    for (let i = 1; i <= NS; i++) as.push(aTop + RAMP_SHELF * i / NS);
+    const bs = []; for (let j = 0; j <= NB; j++) bs.push(RAMP_W * (j / NB - 0.5));
+    const top = as.map(a => bs.map(b => point(a, b, hAt(a)))), bot = as.map(a => bs.map(b => point(a, b, -RAMP_SINK)));
+    const hullOf = (i0, i1) => {
+      const pts = [];
+      for (let i = i0; i <= i1; i++) top[i].concat(bot[i]).forEach(p => pts.push(p.x, p.y, p.z));
+      ground(RAPIER.ColliderDesc.convexHull(new Float32Array(pts)));
+    };
+    for (let i = 0; i < NF; i++) hullOf(i, i + 1);        // lonchas del redondeo
+    hullOf(NF, as.length - 1);                           // tramo recto y repisa
+    // Malla: rampa y repisa por separado (con arista marcada entre ellas), laterales y fondo
+    const col = new THREE.Color().setHSL(0.33 * (1 - (deg - 20) / 50), 0.6, 0.55);
+    const topMat = toon(col, { side: THREE.DoubleSide }), wallMat = toon(col.clone().multiplyScalar(0.72), { side: THREE.DoubleSide });
+    const last = as.length - 1;
+    scene.add(new THREE.Mesh(gridGeo(top.slice(0, NA + 1)), topMat));
+    scene.add(new THREE.Mesh(gridGeo(top.slice(NA)), topMat));
+    [0, NB].forEach(j => scene.add(new THREE.Mesh(gridGeo([top.map(r => r[j]), bot.map(r => r[j])]), wallMat)));
+    scene.add(new THREE.Mesh(gridGeo([top[last], bot[last]]), wallMat));
+    // Rótulo con el ángulo, tumbado al principio de la repisa y legible llegando desde el norte
+    const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+    const cg = c.getContext('2d'); cg.fillStyle = '#1f2a5c'; cg.font = 'bold 44px system-ui, sans-serif';
+    cg.textAlign = 'center'; cg.textBaseline = 'middle'; cg.fillText(deg + '°', 64, 34);
+    const lab = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.18),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    const lp = surf(aTop + 0.13), ly = surf(aTop + 0.14).p.sub(lp.p).normalize();   // texto: arriba = sur
+    lab.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3().crossVectors(ly, lp.n), ly, lp.n));
+    lab.position.copy(lp.p).addScaledVector(lp.n, 0.004);
+    scene.add(lab);
+    return { deg, th, lon, f, s, w, aTop, aEnd, hAt, point, surf, star };
+  });
+
+  // ---------- estrellas coleccionables ----------
+  // Estrella de cinco puntas extruida que gira sobre el arriba local y flota arriba y abajo. Tres: en
+  // las repisas de 35° y 50° y al norte del agujero A, a ≈0,35 u de su borde.
+  const starShape = (() => {
+    const sh = new THREE.Shape();
+    for (let k = 0; k < 10; k++) {
+      const a = Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 0.055 : 0.13;
+      if (k === 0) sh.moveTo(Math.cos(a) * r, Math.sin(a) * r); else sh.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    sh.closePath();
+    return sh;
+  })();
+  const starGeo = new THREE.ExtrudeGeometry(starShape, { depth: 0.04, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.012, bevelSegments: 2 });
+  starGeo.center();
+  const starMeshMat = toon(0xffd23f, { emissive: 0x6b4a00 });
+  const stars = [];
+  const addStar = p => {
+    const holder = new THREE.Group();
+    holder.position.copy(p); holder.quaternion.setFromUnitVectors(UP, p.clone().normalize());
+    scene.add(holder);
+    const m = new THREE.Mesh(starGeo, starMeshMat);
+    holder.add(m);
+    stars.push({ mesh: m, taken: false, t: 0 });
+  };
+  const STAR_UP = 0.17;                             // altura del centro de la estrella sobre el suelo
+  ramps.forEach(rp => { if (rp.star) addStar(rp.point(rp.aTop + 0.3, 0, RAMP_H + STAR_UP)); });
+  const STAR3_LAT = (holeRho(holes[0], latLon(10, 60, 1)) + 0.35 / R_P) / DEG;   // al norte del agujero A, a 0,35 u de su borde
+  addStar(latLon(STAR3_LAT, 60, R_P + STAR_UP));
+  let starsTaken = 0, winT = -1;
+  const starCountEl = document.getElementById('starCount'), starsEl = document.getElementById('stars');
+  const winEl = document.getElementById('win');
+  const starP = new V3();
+  const updateStars = (dt, time) => {
+    stars.forEach((st, k) => {
+      if (st.taken) {
+        if (st.mesh.visible) {
+          st.t += dt;
+          st.mesh.rotation.y += dt * 20;
+          st.mesh.scale.setScalar(Math.max(1 - st.t / 0.35, 0.001));
+          if (st.t > 0.35) st.mesh.visible = false;
+        }
+        return;
+      }
+      st.mesh.rotation.y += dt * 2.2;
+      st.mesh.position.y = Math.sin(time * 2 + k) * 0.025;
+      // recogida: la bola toca la estrella
+      st.mesh.getWorldPosition(starP);
+      if (dying < 0 && starP.distanceTo(ballMesh.position) < BALL_R + 0.12) {
+        st.taken = true; starsTaken++;
+        starCountEl.textContent = starsTaken;
+        starsEl.classList.add('pop'); setTimeout(() => starsEl.classList.remove('pop'), 200);
+        if (starsTaken === stars.length) { winT = 0; winEl.classList.add('show'); }   // "¡Completo!"
+      }
+    });
+  };
+  const resetStars = () => {
+    stars.forEach(st => { st.taken = false; st.t = 0; st.mesh.visible = true; st.mesh.scale.setScalar(1); });
+    starsTaken = 0; starCountEl.textContent = 0;
+  };
+
+  // ---------- bola ----------
+  // Cuerpo dinámico con CCD, masa 1 (las fuerzas son aceleraciones) e inercia de bola maciza,
+  // I = 2/5·m·R², la que crea Rapier. Sin amortiguación lineal y con la angular mínima.
+  const START = new V3(0, R_P + BALL_R + 0.002, 0);   // arranque y reaparición: polo norte, en reposo
+  const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true).setCanSleep(false)
+    .setLinearDamping(0).setAngularDamping(ANG_DAMP).setTranslation(START.x, START.y, START.z));
+  const ballCol = world.createCollider(RAPIER.ColliderDesc.ball(BALL_R).setDensity(1 / (4 / 3 * Math.PI * BALL_R ** 3))
+    .setFriction(MU).setRestitution(BOUNCE), ballBody);
+  const upL = new V3(0, 1, 0);       // arriba local en la bola: −dirección de la gravedad
+  const placeBall = (p, v) => {
+    ballBody.setTranslation(p, true);
+    ballBody.setLinvel(v || ZERO, true); ballBody.setAngvel(ZERO, true);
+    ballBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+    ballBody.resetForces(true); ballBody.resetTorques(true);
+    upL.copy(p).normalize();
+  };
+
+  // Textura del cuerpo de la bola
+  const ballTex = (() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+    const g = c.getContext('2d');
+    // Cuerpo del robot: azul marino con líneas doradas (meridianos y ecuador) y luces cian;
+    // el patrón no es simétrico respecto a ningún eje, así que se ve rodar en cualquier dirección
+    g.fillStyle = '#1f2a5c'; g.fillRect(0, 0, 256, 128);
+    g.fillStyle = '#ffc53d';
+    for (let k = 0; k < 4; k++) g.fillRect(k * 64 + 30, 0, 4, 128);
+    g.fillRect(0, 62, 256, 4);
+    g.fillStyle = '#5ef2ff';
+    [[16, 34], [80, 94], [144, 34], [208, 94]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 7, 0, Math.PI * 2); g.fill(); });
+    return new THREE.CanvasTexture(c);
+  })();
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 40, 28), new THREE.MeshPhongMaterial({ map: ballTex, shininess: 90, specular: 0x666666 }));
+  ballMesh.position.copy(START);
+  scene.add(ballMesh);
+  const ballShadow = makeBlob(0x2a2350, 0.4);
+  ballShadow.scale.setScalar(BALL_R * 1.2);
+  scene.add(ballShadow);
+
+  // ---------- cabeza del robot ----------
+  // Flota justo encima de la bola según el arriba local, mirando hacia donde apunta el stick (sin
+  // entrada, hacia donde rueda) y algo inclinada hacia delante con la velocidad. Solo visual.
+  const head = new THREE.Group();
+  scene.add(head);
+  const headMat = toon(0xd9d0ff), trimMat = toon(0x2b2f5a);
+  const hBase = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.078, 0.05, 28), headMat);
+  hBase.position.y = 0.025; head.add(hBase);
+  const hTop = new THREE.Mesh(new THREE.SphereGeometry(0.07, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2), headMat);
+  hTop.scale.y = 0.55; hTop.position.y = 0.05; head.add(hTop);
+  const hRim = new THREE.Mesh(new THREE.TorusGeometry(0.077, 0.008, 8, 32), trimMat);
+  hRim.rotation.x = Math.PI / 2; hRim.position.y = 0.002; head.add(hRim);
+  const visor = new THREE.Mesh(new THREE.CylinderGeometry(0.0715, 0.0715, 0.018, 28, 1, true, -0.9, 1.8),
+    new THREE.MeshBasicMaterial({ color: 0x5ef2ff, side: THREE.DoubleSide }));
+  visor.position.y = 0.03; head.add(visor);                       // franja luminosa frontal (+z)
+  [-1, 1].forEach(sx => {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.03, 0.045), trimMat);
+    fin.position.set(sx * 0.078, 0.03, -0.01); head.add(fin);
+  });
+  const headFwd = new V3(1, 0, 0), hv = new V3();
+  const headM = new THREE.Matrix4(), headQ = new THREE.Quaternion(), leanQ = new THREE.Quaternion(), XAX = new V3(1, 0, 0);
+  let headLean = 0;
+
+  // ---------- control: stick flotante ----------
+  // El dedo es un stick analógico flotante: su desplazamiento desde el ancla (donde se apoyó) da un
+  // vector s de longitud ≤ 1. No fija una velocidad: hace girar la bola (ver physicsStep). Los ejes son
+  // los horizontales de la cámara en vivo, proyectados al plano tangente de la bola: la cámara solo se
+  // transporta suavemente, y con ejes fijos el mapeo se torcería al dar la vuelta al planeta.
+  let W = 1, H = 1, zoom = 1, zoomT = 1;
+  let stick = null;                        // { id, ax, ay, x, y, R }
+  const keys = new Set();
+  const moveU = new V3();                  // dirección del stick en el plano tangente (unitaria)
+  let moveS = 0, moveOn = false;           // |s| tras la zona muerta y la curva; hay entrada
+  const camR = new V3(), camF = new V3();
+  const stickRing = document.getElementById('stickRing'), stickDot = document.getElementById('stickDot');
+  const drawStick = () => {
+    if (!stick) { stickRing.style.display = stickDot.style.display = 'none'; return; }
+    let dx = stick.x - stick.ax, dy = stick.y - stick.ay;
+    const d = Math.hypot(dx, dy);
+    if (d > stick.R) { dx *= stick.R / d; dy *= stick.R / d; }   // el punto no sale del aro
+    stickRing.style.width = stickRing.style.height = 2 * stick.R + 'px';
+    stickRing.style.transform = `translate(${stick.ax - stick.R - 2}px, ${stick.ay - stick.R - 2}px)`;
+    stickDot.style.transform = `translate(${stick.ax + dx}px, ${stick.ay + dy}px)`;
+    stickRing.style.display = stickDot.style.display = 'block';
+  };
+  const stickStart = (id, x, y) => {
+    stick = { id, ax: x, ay: y, x, y, R: clamp(STICK_K * Math.min(W, H), STICK_MIN, STICK_MAX) };
+    drawStick();
+  };
+  const stickEnd = () => { stick = null; drawStick(); };
+  const updateMove = () => {
+    let sx = 0, sy = 0;
+    if (stick) {
+      sx = (stick.x - stick.ax) / stick.R; sy = -(stick.y - stick.ay) / stick.R;   // pantalla: y hacia abajo
+    } else if (keys.size) {
+      sx = (keys.has('r') ? 1 : 0) - (keys.has('l') ? 1 : 0);
+      sy = (keys.has('u') ? 1 : 0) - (keys.has('d') ? 1 : 0);
+    }
+    const m = Math.hypot(sx, sy);
+    if (m > 1) { sx /= m; sy /= m; }                                 // saturación en círculo
+    const md = clamp((Math.min(m, 1) - STICK_DEAD) / (1 - STICK_DEAD), 0, 1);
+    moveOn = md > 0;
+    moveS = moveOn ? Math.pow(md, STICK_CURVE) : 0;
+    if (!moveOn) return;
+    // arriba en el stick = alejarse de la cámara; derecha = a la derecha de la pantalla
+    camR.setFromMatrixColumn(camera.matrixWorld, 0).addScaledVector(upL, -camR.dot(upL)).normalize();
+    camF.crossVectors(upL, camR);
+    moveU.copy(camR).multiplyScalar(sx).addScaledVector(camF, sy).normalize();
+  };
+  const KEYMAP = { ArrowUp: 'u', KeyW: 'u', ArrowDown: 'd', KeyS: 'd', ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r' };
+  const hint = document.getElementById('hint');
+  window.addEventListener('keydown', e => {
+    const k = KEYMAP[e.code]; if (!k) return;
+    e.preventDefault();
+    if (e.repeat) return;                 // una tecla cancelada al reaparecer no vuelve con la repetición
+    keys.add(k);
+    hint.classList.add('off');
+  });
+  window.addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys.delete(k); });
+  window.addEventListener('blur', () => keys.clear());
+
+  const resize = () => {
+    W = window.innerWidth; H = window.innerHeight;
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    camera.fov = camera.aspect < 0.75 ? 52 : 40;
+    camera.updateProjectionMatrix();
+  };
+  window.addEventListener('resize', resize);
+  resize();
+
+  // El primer dedo hace de stick; con dos, zoom (y el motor se suelta). Al volver a quedar uno, el
+  // stick se ancla de nuevo donde está ese dedo (sin salto).
+  const pointers = new Map();
+  let pinch = null;
+  const pdist = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    hint.classList.add('off'); canvas.classList.add('grabbing');
+    if (pointers.size === 2) pinch = { d: pdist(), z: zoomT };
+    if (pointers.size === 1) stickStart(e.pointerId, e.clientX, e.clientY); else stickEnd();
+  });
+  canvas.addEventListener('pointermove', e => {
+    const p = pointers.get(e.pointerId); if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (pointers.size === 1) {
+      if (stick && stick.id === e.pointerId) { stick.x = p.x; stick.y = p.y; drawStick(); }
+    } else if (pointers.size === 2 && pinch) {
+      zoomT = clamp(pinch.z * pinch.d / pdist(), 0.5, 2.2);
+    }
+  });
+  const release = e => {
+    if (!pointers.delete(e.pointerId)) return;
+    const wasPinch = !!pinch;
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) { stickEnd(); canvas.classList.remove('grabbing'); }
+    else if (pointers.size === 1 && wasPinch) { const [[id, p]] = pointers; stickStart(id, p.x, p.y); }
+  };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomT = clamp(zoomT * Math.exp(e.deltaY * 0.001), 0.5, 2.2); }, { passive: false });
+
+  // ---------- agujero negro en el centro ----------
+  // El de galaxy/index.html a escala (BH_SCALE); el disco queda dentro de R_KILL. Desde fuera solo se
+  // ve su brillo a través de los agujeros.
+  const BH_SCALE = 1.2;
+  const bh = new THREE.Group();
+  bh.scale.setScalar(BH_SCALE);
+  scene.add(bh);
+  bh.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 32, 24), new THREE.MeshBasicMaterial({ color: 0x000000 })));
+  const bhMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'uniform float uTime; varying vec3 vP; void main(){ float r = length(vP.xy); float a = atan(vP.y, vP.x); float t = clamp((r-0.28)/0.42, 0.0, 1.0); float sw = 0.55 + 0.45*sin(a*3.0 - uTime*2.0 + r*12.0); vec3 c = mix(vec3(1.0,0.78,0.4), vec3(0.55,0.25,1.0), t); float al = (1.0-t)*smoothstep(0.0,0.08,t)*sw; gl_FragColor = vec4(c*al, 1.0); }',
+    side: THREE.DoubleSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false
+  });
+  const disc = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.7, 72), bhMat);
+  disc.rotation.x = -Math.PI / 2 + 0.3;
+  disc.renderOrder = 2;
+  bh.add(disc);
+
+  // ---------- pantalla completa ----------
+  const fsBtn = document.getElementById('fs'), toast = document.getElementById('toast');
+  const de = document.documentElement;
+  const isFS = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  let toastT;
+  const showToast = () => { toast.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toast.classList.remove('show'), 2200); };
+  fsBtn.addEventListener('click', () => {
+    try {
+      if (isFS()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+      else {
+        const req = de.requestFullscreen || de.webkitRequestFullscreen;
+        const enabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+        if (!req || enabled === false) { showToast(); return; }
+        const p = req.call(de); if (p && p.catch) p.catch(showToast);
+      }
+    } catch (err) { showToast(); }
+  });
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => {
+    const on = isFS();
+    fsBtn.classList.toggle('on', on);
+    fsBtn.setAttribute('aria-label', on ? 'Salir de pantalla completa' : 'Pantalla completa');
+    resize();
+  }));
+
+  // ---------- estrellas de fondo ----------
+  // Campo de estrellas en tres capas (lejana, media, cercana) con un único material. Parallax solo por
+  // la cámara: cada capa la sigue en distinta proporción; la cercana se mueve más y la lejana casi nada.
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uPR: { value: renderer.getPixelRatio() } },
+    vertexShader: 'attribute float size; attribute float phase; attribute vec3 tint; uniform float uTime; uniform float uPR; varying float vA; varying vec3 vC; void main(){ vA = 0.65+0.35*sin(uTime*1.3+phase); vC = tint; gl_PointSize = size*uPR; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'varying float vA; varying vec3 vC; void main(){ float d = length(gl_PointCoord-0.5); float a = smoothstep(0.5,0.12,d); gl_FragColor = vec4(vC, a*vA); }',
+    transparent: true, depthWrite: false
+  });
+  const TINTS = [[1, 1, 1], [0.75, 0.85, 1], [1, 0.9, 0.75]];
+  const makeStarLayer = (n, rMin, rMax, sMin, sMax, bright, follow) => {
+    const pos = new Float32Array(n * 3), size = new Float32Array(n), ph = new Float32Array(n), tint = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const d = randDir().multiplyScalar(rMin + rnd() * (rMax - rMin));
+      pos.set([d.x, d.y, d.z], i * 3);
+      size[i] = sMin + Math.pow(rnd(), 2) * (sMax - sMin);
+      ph[i] = rnd() * 6.28;
+      const t = TINTS[Math.floor(rnd() * TINTS.length)];
+      tint.set([t[0] * bright, t[1] * bright, t[2] * bright], i * 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('size', new THREE.BufferAttribute(size, 1));
+    g.setAttribute('phase', new THREE.BufferAttribute(ph, 1));
+    g.setAttribute('tint', new THREE.BufferAttribute(tint, 3));
+    const points = new THREE.Points(g, starMat);
+    points.frustumCulled = false;
+    scene.add(points);
+    return { points, follow };
+  };
+  const starLayers = [
+    //            n    radio      tamaño     brillo  sigue cámara
+    makeStarLayer(900, 140, 180,  1.6, 2.6,  0.75,   1.0),   // lejana
+    makeStarLayer(300,  55,  75,  2.2, 3.6,  0.9,    0.9),   // media
+    makeStarLayer( 90,  20,  30,  3.0, 5.0,  1.0,    0.6),   // cercana
+  ];
+
+  // ---------- gravedad, apoyo y motor ----------
+  // Gravedad hacia el centro del planetoide, de módulo G, dentro de R_INF; fuera, cero.
+  const gravityAt = (p, out) => {
+    const r = p.length();
+    return r > R_INF || r < 1e-6 ? out.set(0, 0, 0) : out.copy(p).multiplyScalar(-G / r);
+  };
+  // Apoyo: contactos del paso anterior (manifolds de Rapier) con la normal a menos de 60° del arriba
+  // local; manda el más alineado con él. El manifold da la normal de su primer colisionador hacia el
+  // segundo: si el par no viene invertido, el primero es la bola y hay que darle la vuelta. Un trimesh
+  // da un manifold por triángulo cercano, casi todos vacíos.
+  // La separación se mide con el punto de contacto del suelo (fijo, en coordenadas del mundo) y la
+  // posición actual de la bola, no con contactDist: con la bola quieta Rapier no rehace el manifold, y
+  // contactDist se queda en el valor especulativo de antes de tocar (medido: 0,015 en reposo).
+  let grounded = false;
+  const nG = new V3(), nC = new V3(), cP = new V3();
+  const findSupport = () => {
+    let best = GROUND_COS;
+    grounded = false;
+    world.contactPairsWith(ballCol, other => {
+      world.contactPair(ballCol, other, (man, flipped) => {
+        if (!man.numContacts()) return;
+        const n = man.normal();
+        nC.set(n.x, n.y, n.z);
+        if (!flipped) nC.negate();
+        let touch = false;
+        for (let k = 0; k < man.numContacts(); k++) {
+          const lp = flipped ? man.localContactPoint1(k) : man.localContactPoint2(k);
+          if (lp && cP.set(lp.x, lp.y, lp.z).sub(pB).dot(nC) + BALL_R > -CONTACT_EPS) touch = true;
+        }
+        if (!touch) return;
+        const c = nC.dot(upL);
+        if (c > best) { best = c; nG.copy(nC); grounded = true; }
+      });
+    });
+  };
+  // Motor: el stick no fija una velocidad, hace girar la bola. Un par sobre el eje n × u (n, normal del
+  // apoyo, o el arriba local en el aire; u, dirección del stick) que baja hasta cero cuando la bola gira
+  // a V_MAX/R a favor del motor; girando en contra (frenar) va entero. La bola avanza por rozamiento:
+  // en llano acelera a 5/7·A_MOTOR, sube hasta min(asin(A_MOTOR/G), atan(MU)) ≈ 42°, patina si el par
+  // pasa del agarre, y en el aire solo gira. Al soltar, la resistencia a la rodadura: un par contra la
+  // parte de rodadura del giro (sin el giro sobre la normal), que con el factor 7/5 decelera ROLL_RES
+  // rodando y sin invertir el giro en un paso. Solo actúa sin entrada: con ella las cifras del motor
+  // (5/7·A_MOTOR, V_MAX, 42°) serían las suyas menos la resistencia.
+  // Resistencia al pivotar: con apoyo, siempre, un par contra el giro sobre la normal (peonza), que lo
+  // frena a SPIN_RES sin invertirlo en un paso. Rapier no la tiene (el contacto es un punto, que al
+  // pivotar no resbala) y la de rodadura no la toca: la bola se quedaba quieta girando sobre sí misma
+  // (medido: 11 rad/s, y a los 8 s seguía a 10,5). No toca la rodadura, así que no cambia el motor.
+  const pB = new V3(), vB = new V3(), wB = new V3(), gL = new V3(), axis = new V3(), wt = new V3(), tq = new V3();
+  let simT = 0, outside = 0;
+  const physicsStep = () => {
+    simT += STEP;
+    const t = ballBody.translation(), lv = ballBody.linvel(), av = ballBody.angvel();
+    pB.set(t.x, t.y, t.z); vB.set(lv.x, lv.y, lv.z); wB.set(av.x, av.y, av.z);
+    gravityAt(pB, gL);
+    if (gL.lengthSq() > 0) upL.copy(gL).normalize().negate();   // fuera de la influencia se conserva el último
+    outside = pB.length() > R_INF ? outside + STEP : 0;
+    findSupport();
+    const m = ballBody.mass();
+    // Rapier acumula fuerzas y pares de un paso al siguiente
+    ballBody.resetForces(true); ballBody.resetTorques(true);
+    ballBody.addForce({ x: gL.x * m, y: gL.y * m, z: gL.z * m }, true);
+    tq.set(0, 0, 0);
+    if (moveOn) {
+      axis.crossVectors(grounded ? nG : upL, moveU);
+      if (axis.lengthSq() > 1e-10) {
+        axis.normalize();
+        const tau = moveS * A_MOTOR * m * BALL_R * clamp(1 - wB.dot(axis) * BALL_R / V_MAX, 0, 1);
+        tq.addScaledVector(axis, tau);
+      }
+    } else if (grounded) {
+      wt.copy(wB).addScaledVector(nG, -wB.dot(nG));
+      const mag = wt.length();
+      if (mag > 1e-9) tq.addScaledVector(wt, -(7 / 5) * m * BALL_R * Math.min(ROLL_RES, mag * BALL_R / STEP) / mag);
+    }
+    if (grounded) {
+      const wn = wB.dot(nG);
+      tq.addScaledVector(nG, -Math.sign(wn) * (2 / 5) * m * BALL_R * BALL_R * Math.min(SPIN_RES, Math.abs(wn) / STEP));
+    }
+    ballBody.addTorque(tq, true);
+    world.step();
+  };
+
+  // ---------- caer y morir ----------
+  // Bajar de R_KILL (caer por un agujero hacia el centro) o perderse en el espacio (más de LOST_TIME
+  // fuera de R_INF, o más lejos que R_SPACE) empieza el colapso: la física se para y la caída al
+  // agujero negro es una espiral animada. Después se reaparece en el arranque; las estrellas se conservan.
+  const COLLAPSE = 1.6;                  // duración de la caída al agujero negro (s)
+  let dying = -1, camFrozen = false;
+  const dieP0 = new V3(), dieV0 = new V3(), dieAxis = new V3(), dieQ = new THREE.Quaternion();
+
+  // ---------- cámara estilo Galaxy ----------
+  // La bola siempre en el centro, vista desde arriba y algo por detrás (CAM_DIST, CAM_ELEV). El arriba
+  // de la cámara (camUp) sigue al arriba local suavizado, y el rumbo (camHead, tangente) no gira solo:
+  // se transporta en paralelo, aplicándole en cada frame el giro mínimo que lleva el arriba anterior al
+  // nuevo. Así rodar alrededor del planeta gira el mundo en pantalla y no el horizonte, y la cámara no
+  // da vueltas al pasar por los polos. Arranca mirando hacia la longitud 0° (la rampa de 20°).
+  const HEAD0 = new V3(1, 0, 0);
+  const camUp = new V3(0, 1, 0), camHead = HEAD0.clone(), snapHead = HEAD0.clone(), camOff = new V3(), upN = new V3();
+  const camQ = new THREE.Quaternion();
+  let camDistS = CAM_DIST, snapCam = true;
+  // Al reaparecer: sin gesto en curso y cámara colocada al instante como al empezar
+  const resetView = () => {
+    stickEnd(); keys.clear(); updateMove();
+    snapHead.copy(HEAD0); snapCam = true;
+  };
+  const resetBall = () => placeBall(START);
+
+  const ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  const clock = new THREE.Clock();
+  let acc = 0;
+  document.getElementById('loading').classList.add('off');
+
+  const tick = () => {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    if (dt <= 0) { requestAnimationFrame(tick); return; }
+
+    updateMove();   // dirección y fuerza del motor, a partir del stick o del teclado
+
+    // Física a paso fijo, o animación de muerte
+    if (dying < 0) {
+      acc += dt; let n = 0;
+      while (acc >= STEP && n < 8) { physicsStep(); acc -= STEP; n++; }
+      if (n === 8) acc = 0;
+      const t = ballBody.translation(), q = ballBody.rotation();
+      ballMesh.position.set(t.x, t.y, t.z);
+      ballMesh.quaternion.set(q.x, q.y, q.z, q.w);
+      const r = ballMesh.position.length();
+      if (r < R_KILL || outside > LOST_TIME || r > R_SPACE) {
+        dying = 0; camFrozen = true;
+        const lv = ballBody.linvel();
+        dieP0.copy(ballMesh.position);
+        dieV0.set(lv.x, lv.y, lv.z);
+        dieAxis.crossVectors(dieP0, dieV0);
+        if (dieAxis.lengthSq() < 1e-6) dieAxis.set(0, 1, 0).cross(dieP0);
+        if (dieAxis.lengthSq() < 1e-6) dieAxis.set(1, 0, 0);
+        dieAxis.normalize();
+      }
+    } else {
+      // Caída simulada (sin física): espiral acelerada hacia el centro, encogiéndose al final
+      dying += dt;
+      const k = clamp(dying / COLLAPSE, 0, 1), e = k * k;
+      dieQ.setFromAxisAngle(dieAxis, e * 2.5);
+      ballMesh.position.copy(dieP0).applyQuaternion(dieQ).multiplyScalar(1 - e)
+        .addScaledVector(dieV0, dying * (1 - k) * (1 - k));
+      ballMesh.scale.setScalar(Math.max(1 - Math.max(0, (k - 0.6) / 0.4), 0.001));
+      ballMesh.rotateOnWorldAxis(dieAxis, dt * 12);
+      if (dying > COLLAPSE + 0.5) {
+        resetBall(); dying = -1; acc = 0; outside = 0; camFrozen = false; resetView();
+        ballMesh.scale.setScalar(1);
+        ballMesh.position.copy(START);
+      }
+    }
+
+    // Cabeza del robot
+    head.position.copy(ballMesh.position).addScaledVector(upL, (BALL_R + 0.006) * ballMesh.scale.x);
+    head.scale.setScalar(ballMesh.scale.x);
+    const lv = ballBody.linvel();
+    hv.set(lv.x, lv.y, lv.z).addScaledVector(upL, -hv.dot(upL));
+    const hs = dying < 0 ? hv.length() : 0;
+    // mira hacia donde apunta el stick mientras haya entrada; si no, hacia donde rueda
+    const look = dying < 0 && moveOn ? moveU : hs > 0.15 ? hv.divideScalar(hs) : null;
+    if (look) headFwd.lerp(look, 1 - Math.exp(-dt * 6));
+    headFwd.addScaledVector(upL, -headFwd.dot(upL));
+    if (headFwd.lengthSq() < 1e-4) headFwd.copy(camHead); else headFwd.normalize();
+    headLean += (clamp(hs * 0.08, 0, 0.22) - headLean) * (1 - Math.exp(-dt * 5));
+    headM.lookAt(headFwd, ZERO, upL);                       // +z de la cabeza hacia la marcha
+    head.quaternion.setFromRotationMatrix(headM).multiply(leanQ.setFromAxisAngle(XAX, headLean));
+
+    // Sombra: rayo desde la bola en el sentido de la gravedad; la mancha va en el punto de impacto,
+    // orientada a su normal, y se desvanece con la altura
+    let hit = null;
+    if (dying < 0) {
+      ray.origin = { x: ballMesh.position.x, y: ballMesh.position.y, z: ballMesh.position.z };
+      ray.dir = { x: -upL.x, y: -upL.y, z: -upL.z };
+      hit = world.castRayAndGetNormal(ray, 2, true, undefined, undefined, ballCol);
+    }
+    ballShadow.visible = !!hit;
+    if (hit) {
+      ballShadow.position.copy(ballMesh.position).addScaledVector(upL, -hit.timeOfImpact);
+      nC.set(hit.normal.x, hit.normal.y, hit.normal.z);
+      ballShadow.position.addScaledVector(nC, 0.003);
+      ballShadow.quaternion.setFromUnitVectors(UP, nC);
+      ballShadow.material.opacity = 0.4 * clamp(1 - (hit.timeOfImpact - BALL_R) / 0.4, 0, 1);
+    }
+
+    // Todas las estrellas: "¡Completo!" y vuelven a salir
+    if (winT >= 0) {
+      winT += dt;
+      if (winT > 2.5) { winEl.classList.remove('show'); winT = -1; resetStars(); }
+    }
+
+    // Cámara
+    zoom += (zoomT - zoom) * (1 - Math.exp(-dt * 10));
+    const arm = CAM_DIST * zoom;
+    if (snapCam) {
+      camUp.copy(upL);
+      camHead.copy(snapHead);
+      camDistS = arm;
+    } else if (!camFrozen) {
+      upN.copy(camUp).lerp(upL, 1 - Math.exp(-dt * CAM_UP_K));
+      if (upN.lengthSq() > 1e-8) {
+        upN.normalize();
+        camHead.applyQuaternion(camQ.setFromUnitVectors(camUp, upN));   // transporte paralelo del rumbo
+        camUp.copy(upN);
+      }
+      camDistS += (arm - camDistS) * (1 - Math.exp(-dt * (arm < camDistS ? 12 : 3)));
+    }
+    camHead.addScaledVector(camUp, -camHead.dot(camUp));
+    if (camHead.lengthSq() < 1e-6) camHead.set(1, 0, 0).addScaledVector(camUp, -camUp.x);   // degenerado
+    camHead.normalize();
+    snapCam = false;
+    camOff.copy(camHead).multiplyScalar(-Math.cos(CAM_ELEV)).addScaledVector(camUp, Math.sin(CAM_ELEV));
+    // Durante el colapso la cámara se queda quieta y sigue mirando a la bola
+    if (!camFrozen) camera.position.copy(ballMesh.position).addScaledVector(camOff, camDistS);
+    camera.up.copy(camUp);
+    camera.lookAt(ballMesh.position);
+    camera.updateMatrixWorld();
+    hemi.position.copy(camUp);
+    camR.setFromMatrixColumn(camera.matrixWorld, 0);
+    sun.position.copy(camUp).multiplyScalar(5).addScaledVector(camHead, -3).addScaledVector(camR, 5);
+
+    starMat.uniforms.uTime.value = clock.elapsedTime;
+    starLayers.forEach(L => L.points.position.copy(camera.position).multiplyScalar(L.follow));
+    bhMat.uniforms.uTime.value = clock.elapsedTime;
+    updateStars(dt, clock.elapsedTime);
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  };
+  tick();
+})().catch(err => {
+  // Un fallo al arrancar (dentro de la función asíncrona) no llega como evento "error": se relanza
+  document.getElementById('loading').textContent = 'No se pudo arrancar: ' + (err && err.message || err);
+  setTimeout(() => { throw err; });
+});
+</script>
+</body>
+</html>

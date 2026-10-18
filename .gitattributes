@@ -1,0 +1,2 @@
+# Librerías de terceros tal cual, byte a byte: sin conversión de saltos de línea
+vendor/** -text
