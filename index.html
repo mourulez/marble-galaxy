@@ -77,13 +77,14 @@
     pointer-events: none; z-index: 5; transition: transform .2s ease;
   }
   #stars.pop { transform: scale(1.25); }
-  /* Indicador del stick: aro en el ancla (del tamaño del radio) y punto en la posición del dedo */
-  #stickRing, #stickDot {
-    position: fixed; left: 0; top: 0; border-radius: 50%;
-    pointer-events: none; z-index: 4; display: none;
+  /* Contador de fps, bajo el de estrellas */
+  #fps {
+    position: fixed;
+    left: calc(env(safe-area-inset-left, 0px) + 16px);
+    top: calc(env(safe-area-inset-top, 0px) + 66px);
+    font: 12px ui-monospace, Consolas, monospace; opacity: .6;
+    pointer-events: none; z-index: 5;
   }
-  #stickRing { border: 2px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.04); }
-  #stickDot { width: 26px; height: 26px; margin: -13px 0 0 -13px; background: rgba(255,255,255,0.45); }
   #loading {
     position: fixed; inset: 0; display: grid; place-items: center;
     font-size: 15px; opacity: .7; pointer-events: none; z-index: 7;
@@ -101,7 +102,7 @@
 <div id="toast">Pantalla completa no disponible aquí</div>
 <div id="win" aria-live="polite">¡Completo!</div>
 <div id="stars" aria-label="Estrellas recogidas">★ <span id="starCount">0</span>/3</div>
-<div id="stickRing"></div><div id="stickDot"></div>
+<div id="fps" aria-hidden="true"></div>
 <div id="loading">Cargando…</div>
 
 <script src="vendor/three-r128.min.js"></script>
@@ -581,7 +582,8 @@
 
   // ---------- control: stick flotante ----------
   // El dedo es un stick analógico flotante: su desplazamiento desde el ancla (donde se apoyó) da un
-  // vector s de longitud ≤ 1. No fija una velocidad: hace girar la bola (ver physicsStep). Los ejes son
+  // vector s de longitud ≤ 1. No se dibuja (sin aro ni punto en pantalla). No fija una velocidad: hace
+  // girar la bola (ver physicsStep). Los ejes son
   // los horizontales de la cámara en vivo, proyectados al plano tangente de la bola: la cámara solo se
   // transporta suavemente, y con ejes fijos el mapeo se torcería al dar la vuelta al planeta.
   let W = 1, H = 1, zoom = 1, zoomT = 1;
@@ -590,22 +592,10 @@
   const moveU = new V3();                  // dirección del stick en el plano tangente (unitaria)
   let moveS = 0, moveOn = false;           // |s| tras la zona muerta y la curva; hay entrada
   const camR = new V3(), camF = new V3();
-  const stickRing = document.getElementById('stickRing'), stickDot = document.getElementById('stickDot');
-  const drawStick = () => {
-    if (!stick) { stickRing.style.display = stickDot.style.display = 'none'; return; }
-    let dx = stick.x - stick.ax, dy = stick.y - stick.ay;
-    const d = Math.hypot(dx, dy);
-    if (d > stick.R) { dx *= stick.R / d; dy *= stick.R / d; }   // el punto no sale del aro
-    stickRing.style.width = stickRing.style.height = 2 * stick.R + 'px';
-    stickRing.style.transform = `translate(${stick.ax - stick.R - 2}px, ${stick.ay - stick.R - 2}px)`;
-    stickDot.style.transform = `translate(${stick.ax + dx}px, ${stick.ay + dy}px)`;
-    stickRing.style.display = stickDot.style.display = 'block';
-  };
   const stickStart = (id, x, y) => {
     stick = { id, ax: x, ay: y, x, y, R: clamp(STICK_K * Math.min(W, H), STICK_MIN, STICK_MAX) };
-    drawStick();
   };
-  const stickEnd = () => { stick = null; drawStick(); };
+  const stickEnd = () => { stick = null; };
   const updateMove = () => {
     let sx = 0, sy = 0;
     if (stick) {
@@ -663,7 +653,7 @@
     const p = pointers.get(e.pointerId); if (!p) return;
     p.x = e.clientX; p.y = e.clientY;
     if (pointers.size === 1) {
-      if (stick && stick.id === e.pointerId) { stick.x = p.x; stick.y = p.y; drawStick(); }
+      if (stick && stick.id === e.pointerId) { stick.x = p.x; stick.y = p.y; }
     } else if (pointers.size === 2 && pinch) {
       zoomT = clamp(pinch.z * pinch.d / pdist(), 0.5, 2.2);
     }
@@ -869,11 +859,16 @@
   const ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   const clock = new THREE.Clock();
   let acc = 0;
+  const fpsEl = document.getElementById('fps');
+  let fpsN = 0, fpsT = 0;
   document.getElementById('loading').classList.add('off');
 
   const tick = () => {
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const raw = clock.getDelta(), dt = Math.min(raw, 0.05);
     if (dt <= 0) { requestAnimationFrame(tick); return; }
+    // fps con el tiempo real entre frames (no el dt recortado), cada medio segundo
+    fpsN++; fpsT += raw;
+    if (fpsT >= 0.5) { fpsEl.textContent = Math.round(fpsN / fpsT) + ' fps'; fpsN = 0; fpsT = 0; }
 
     updateMove();   // dirección y fuerza del motor, a partir del stick o del teclado
 

@@ -1,9 +1,10 @@
-  // Pruebas funcionales de la bola con motor en el planetoide (spec-marble-galaxy.md, "Verificación").
+  // Pruebas funcionales de la bola con motor en el planetoide (ver "Verificación" en CLAUDE.md).
   // Cada escenario coloca la bola, fija la entrada (stick) y mide; el tiempo es el de la simulación.
   //   python3 tools/probar.py tools/pruebas/mecanismos.js gravedad llano aire
   //   python3 tools/probar.py tools/pruebas/mecanismos.js "cuesta:rampa=0&modo=parada" ...
-  //   escenarios: gravedad, llano, aire, agujero, arriba, circulo, signos,
-  //               cuesta (rampa=0|1|2, modo=parada|carrerilla|media)
+  //   escenarios: gravedad, llano, aire, pivote, agujero, espacio, arriba, circulo, signos,
+  //               cuesta (rampa=0|1|2, modo=parada|carrerilla|media|lanzada&v=…),
+  //               patinar (en una copia con A_MOTOR muy por encima de MU·G, vía --pagina)
   const T = THREE, v3 = (x, y, z) => new T.Vector3(x, y, z);
   const pos = () => { const t = ballBody.translation(); return v3(t.x, t.y, t.z); };
   const vel = () => { const t = ballBody.linvel(); return v3(t.x, t.y, t.z); };

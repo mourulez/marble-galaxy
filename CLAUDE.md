@@ -10,8 +10,8 @@ en inglés, como en el código heredado.
 
 Aquí va solo lo que **cruza todo el juego o no está en el código**: reglas
 transversales, decisiones cerradas, cómo se verifica, cómo se trabaja y el entorno.
-Se lee antes de tocar nada. El diseño de la fase en curso está en su `spec-*.md`
-(ahora, `spec-marble-galaxy.md`).
+Se lee antes de tocar nada. El diseño de la fase en curso, si la hay, está en su
+`spec-*.md`.
 
 El detalle de cada pieza vive en los comentarios de `index.html`, junto al código, y
 ahí se mantiene al día. Si una entrada solo afecta a una función, su sitio es un
@@ -44,7 +44,13 @@ comentario. Si algo de aquí deja de ser cierto, se borra. Tope orientativo: 80 
 - La gravedad del mundo de Rapier es cero. Cada paso se aplica la de `gravityAt(p)`
   como fuerza. El "arriba" local es −dirección de la gravedad en ese punto, y todo lo
   orientado (cabeza, sombra, cámara, stick) se calcula con él, nunca con el `y` del
-  mundo.
+  mundo. Las pendientes también: una cuña plana de 20° en el planeta acaba en 39°.
+- Con un cuerpo quieto, Rapier no rehace sus manifolds y `contactDist` se queda en el
+  valor de antes de tocar: la separación se mide con el punto de contacto y la
+  posición actual (ver `findSupport()`).
+- Las juntas entre colisionadores distintos, siempre cóncavas: en las planas o
+  convexas la bola choca con la arista (choques fantasma). Por eso el pie de las
+  rampas va en lonchas convexas y su perfil arranca bajo la superficie.
 - Toon con gradiente propio. Ningún color base en blanco puro: con la luz ambiente más
   el sol se satura y borra texturas. `ExtrudeGeometry` mete las dos tapas en un grupo
   de material; para texturizar solo la de arriba hay que separarlas.
@@ -53,6 +59,11 @@ comentario. Si algo de aquí deja de ser cierto, se borra. Tope orientativo: 80 
 ## Decisiones cerradas
 
 - El robot-bola es un diseño propio: no se reproducen personajes con copyright.
+- Bola con motor (Marble Madness): el stick da un par y la bola avanza por rozamiento,
+  con inercia; nada la frena salvo la resistencia a la rodadura y al pivotar. Gravedad
+  hacia el centro del planetoide, de módulo constante (como en Galaxy, no 1/r²). En
+  `galaxy` se descartó la gravedad al centro con un mundo que giraba el jugador; con
+  una bola que se mueve sola, sí.
 - Sombras de contacto (manchas bajo cada objeto), no sombras de la luz: con luz rasante
   se alargaban y el pase de sombras costaba un render extra.
 - Caer es colapsar al agujero negro del centro: la física se para y la espiral es una
@@ -75,6 +86,9 @@ ayudas en su cabecera y en `tools/preludio.js`):
 - Al cerrar, cada escenario lista los errores y las peticiones externas.
 - `--file` abre la página como un doble clic.
 - `tools/pruebas/arranque.js` comprueba el arranque; vale para cualquier versión.
+  `tools/pruebas/mecanismos.js` tiene un escenario por mecanismo (lista en su cabecera).
+- El primer `tick()` no coloca nada (`clock.getDelta()` da 0): las referencias, como
+  la cámara del arranque, se toman tras unos frames.
 - **Pruebas funcionales, no de juego.** Los niveles los juega el usuario: no se hace un
   bot que los recorra ni se ajusta nada hasta que "salga". Se mide cada mecanismo en
   un escenario aislado: se coloca la bola, se fija la entrada (`stick.x/y`) y se
@@ -105,7 +119,7 @@ ayudas en su cabecera y en `tools/preludio.js`):
      (https://mourulez.github.io/marble-galaxy/, tarda 1-3 min; pedir la URL
      saltándose la caché).
 - El repo es público (https://github.com/mourulez/marble-galaxy), y la web de Pages
-  sirve todo lo que hay en la raíz, también este fichero y la spec.
+  sirve todo lo que hay en la raíz, también este fichero y las specs.
 
 ## Entorno
 
